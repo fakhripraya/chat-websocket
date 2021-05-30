@@ -19,8 +19,12 @@
   },
   "homepage": "https://github.com/fakhripraya/chat-websocket#readme",
   "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^9.0.2",
     "express": "^4.17.1",
+    "mysql2": "^2.2.5",
     "nodemon": "^2.0.7",
+    "sequelize": "^6.6.2",
     "socket.io": "^2.2.0"
   }
 }
