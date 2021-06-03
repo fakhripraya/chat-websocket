@@ -53,10 +53,6 @@ const DBChatRoomMembers = db.define('db_chat_room_members', {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: false
     },
-    socket_id: {
-        type: DataTypes.INTEGER.UNSIGNED,
-        allowNull: false
-    },
     is_active: {
         type: DataTypes.BOOLEAN,
         allowNull: false
@@ -100,15 +96,20 @@ const DBChatRoomChats = db.define('db_chat_room_chats', {
     },
     chat_body: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: true
     },
     attachment: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: true
     },
     pic_url: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: true
+    },
+    chat_read: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
     },
     is_active: {
         type: DataTypes.BOOLEAN,
