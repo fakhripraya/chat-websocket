@@ -132,9 +132,8 @@ io.on('connection', socket => {
 
             }).then(function (res) {
 
-                console.log(receiver.user_id)
-                io.emit("set message" + receiver.user_id, { message: res, messages: messages, type, senderId: sender.id })
-                io.emit("set message" + sender.id, { message: res, messages: messages, type, senderId: sender.id })
+                io.emit("set message" + receiver.user_id, { message: res, messages: messages, type, serverSender: sender, serverReceiver: receiver, roomId: room.id })
+                io.emit("set message" + sender.id, { message: res, messages: messages, type, serverSender: sender, serverReceiver: receiver, roomId: room.id })
                 t.commit();
 
                 io.emit('trigger' + sender.id)
@@ -149,6 +148,24 @@ io.on('connection', socket => {
 
             });
         });
+    })
+
+    socket.on('read message', ({ reader, roomId }) => {
+        DBChatRoomChats.update(
+            {
+                chat_read: true
+            },
+            {
+                where: {
+                    sender_id: {
+                        [Op.ne]: reader.id
+                    },
+                    room_id: {
+                        [Op.eq]: roomId
+                    }
+                }
+            }
+        )
     })
 
     socket.on('disconnect', function (reason) {
