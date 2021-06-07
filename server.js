@@ -150,7 +150,7 @@ io.on('connection', socket => {
         });
     })
 
-    socket.on('read message', ({ reader, roomId }) => {
+    socket.on('read messages', ({ reader, roomId }) => {
         DBChatRoomChats.update(
             {
                 chat_read: true
