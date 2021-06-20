@@ -29,126 +29,23 @@ io.on('connection', socket => {
     // trigger rerender for the first time
     io.to(socket.id).emit('trigger rerender')
 
-    socket.on('join room', (room, user, users, callback) => {
-
+    socket.on('trigger rerender self', (user) => {
         // trigger rerender to the selected user for joining the room
         io.to(socket.id).emit('trigger' + user.id)
+    })
 
-        DBChatRoomChats.findAll({
-            raw: true,
-            where: {
-                room_id: {
-                    [Op.eq]: room.id
-                }
-            }
-        }).then(function (res) {
-
-            if (res !== null && res.length !== 0) {
-
-                DBChatRoomChats.update(
-                    {
-                        chat_read: true
-                    },
-                    {
-                        where: {
-                            sender_id: {
-                                [Op.ne]: user.id
-                            },
-                            room_id: {
-                                [Op.eq]: room.id
-                            }
-                        }
-                    }
-                )
-
-                callback({ error: null, callbackRoom: room, callbackChats: res });
-
-            } else {
-
-                if (users !== null) {
-                    db.transaction().then(function (t) {
-                        DBChatRoom.create({
-                            room_desc: "room-" + socket.id.toString(),
-                            is_active: true,
-                            created_by: user.displayname,
-                            modified_by: user.displayname,
-                        }, {
-                            transaction: t
-                        }).then(function (res2) {
-
-                            const roomObj = res2.get({ plain: true })
-
-                            users.forEach(u => {
-                                DBChatRoomMembers.create({
-                                    room_id: roomObj.id,
-                                    user_id: u.id,
-                                    is_active: true,
-                                    created_by: user.displayname,
-                                    modified_by: user.displayname,
-                                }, {
-                                    transaction: t
-                                }).then(function () {
-
-                                    t.commit();
-                                    callback({ error: null, callbackRoom: roomObj, callbackChats: null });
-
-                                }).catch(function (err3) {
-
-                                    t.rollback();
-                                    callback({ error: err3, callbackRoom: null, callbackChats: null });
-
-                                });
-                            });
-
-                        }).catch(function (err2) {
-                            t.rollback();
-                            callback({ error: err2, callbackRoom: null, callbackChats: null });
-                        });
-                    });
-                }
-
-            }
-
-        }).catch(function (err) {
-            callback({ error: err, callbackRoom: null, callbackChats: null });
-        })
+    socket.on('join room', (callback) => {
+        try {
+            callback({ error: null, room_desc: "room-" + socket.id.toString() });
+        } catch (error) {
+            callback({ error: error.message, room_desc: null });
+        }
     });
 
-    socket.on('send message', ({ type, sender, receiver, message, messages, room }) => {
-
-        db.transaction().then(function (t) {
-            DBChatRoomChats.create({
-                room_id: room.id,
-                sender_id: sender.id,
-                chat_body: message,
-                attachment: null, // next feature
-                pic_url: null, // next feature
-                chat_read: false,
-                is_active: true,
-                created_by: sender.displayname,
-                modified_by: sender.displayname,
-            }, {
-                transaction: t
-
-            }).then(function (res) {
-
-                io.emit("set message" + receiver.user_id, { message: res, messages: messages, type, serverSender: sender, serverReceiver: receiver, roomId: room.id })
-                io.emit("set message" + sender.id, { message: res, messages: messages, type, serverSender: sender, serverReceiver: receiver, roomId: room.id })
-                t.commit();
-
-                io.emit('trigger' + sender.id)
-                io.emit('trigger' + receiver.user_id)
-
-            }).catch(function (error) {
-
-                console.log(error)
-
-                // io.to(room).emit('get error', { message: error.message, type, senderId })
-                t.rollback();
-
-            });
-        });
-    })
+    socket.on('send message', ({ sender, receiver, message }) => {
+        io.emit("set message" + sender.id, { message: message, senderId: sender.id, receiverId: receiver.user_id })
+        io.emit("set message root" + receiver.user_id, { message: message, senderId: sender.id, receiverId: receiver.user_id })
+    });
 
     socket.on('read messages', ({ reader, roomId }) => {
         DBChatRoomChats.update(
