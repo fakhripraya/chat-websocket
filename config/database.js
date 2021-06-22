@@ -6,6 +6,7 @@ dotenv.config();
 module.exports = new Sequelize('jktinfokostdb_dev', 'root', '123456', {
     host: 'localhost',
     dialect: 'mysql',
+    logging: false,
 
     pool: {
         max: 5,

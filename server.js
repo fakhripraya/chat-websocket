@@ -1,5 +1,5 @@
 const app = require('express')()
-const { Op, where } = require("sequelize");
+const { Op, where, QueryTypes } = require("sequelize");
 const cors = require('cors');
 const http = require('http').createServer(app)
 const io = require('socket.io').listen(http, {
@@ -31,91 +31,123 @@ io.on('connection', socket => {
 
     socket.on('join room', (room, user, users, callback) => {
 
+        // filter the room id
+        const roomId = room !== null ? room.id : 0;
         // trigger rerender to the selected user for joining the room
         io.to(socket.id).emit('trigger' + user.id)
 
-        DBChatRoomChats.findAll({
-            raw: true,
-            where: {
-                room_id: {
-                    [Op.eq]: room.id
+        if (roomId !== 0) {
+            DBChatRoomChats.findAll({
+                raw: true,
+                where: {
+                    room_id: {
+                        [Op.eq]: roomId
+                    }
                 }
-            }
-        }).then(function (res) {
-
-            if (res !== null && res.length !== 0) {
-
-                DBChatRoomChats.update(
-                    {
+            }).then(function (res) {
+                db.transaction().then(function (t) {
+                    DBChatRoomChats.update({
                         chat_read: true
-                    },
-                    {
+                    }, {
                         where: {
                             sender_id: {
                                 [Op.ne]: user.id
                             },
                             room_id: {
-                                [Op.eq]: room.id
+                                [Op.eq]: roomId
                             }
                         }
+                    }).then(function () {
+                        t.commit();
+                        callback({ error: null, callbackRoom: room, callbackChats: res });
+                    }).catch(function (err2) {
+                        t.rollback();
+                        callback({ error: err2, callbackRoom: null, callbackChats: null });
+                    });
+                })
+            }).catch(function (err) {
+                callback({ error: err, callbackRoom: null, callbackChats: null });
+            })
+        } else {
+            if (users !== null) {
+                db.query(
+                    'SELECT * FROM db_chat_room_members WHERE user_id = ? or user_id = ? GROUP BY room_id HAVING count(*) = 2',
+                    {
+                        replacements: [users[0].user_id, users[1].user_id],
+                        type: QueryTypes.SELECT
                     }
-                )
-
-                callback({ error: null, callbackRoom: room, callbackChats: res });
-
-            } else {
-
-                if (users !== null) {
-                    db.transaction().then(function (t) {
-                        DBChatRoom.create({
-                            room_desc: "room-" + socket.id.toString(),
-                            is_active: true,
-                            created_by: user.displayname,
-                            modified_by: user.displayname,
-                        }, {
-                            transaction: t
+                ).then(function (res) {
+                    if (res === null || res.length === 0) {
+                        db.transaction().then(function (t) {
+                            DBChatRoom.create({
+                                room_desc: "room-" + socket.id.toString(),
+                                is_active: true,
+                                created_by: user.username,
+                                modified_by: user.username,
+                            }).then(function (res2) {
+                                const roomObj = res2.get({ plain: true })
+                                users.forEach(u => {
+                                    DBChatRoomMembers.create({
+                                        room_id: roomObj.id,
+                                        user_id: u.user_id,
+                                        is_active: true,
+                                        created_by: user.username,
+                                        modified_by: user.username,
+                                    }).catch(function (err3) {
+                                        t.rollback();
+                                        callback({ error: err3, callbackRoom: null, callbackChats: null });
+                                    });
+                                });
+                                t.commit();
+                                callback({ error: null, callbackRoom: roomObj, callbackChats: null });
+                            }).catch(function (err2) {
+                                t.rollback();
+                                callback({ error: err2, callbackRoom: null, callbackChats: null });
+                            });
+                        });
+                    } else {
+                        DBChatRoomChats.findAll({
+                            raw: true,
+                            where: {
+                                room_id: {
+                                    [Op.eq]: res[0].room_id
+                                }
+                            }
                         }).then(function (res2) {
-
-                            const roomObj = res2.get({ plain: true })
-
-                            users.forEach(u => {
-                                DBChatRoomMembers.create({
-                                    room_id: roomObj.id,
-                                    user_id: u.id,
-                                    is_active: true,
-                                    created_by: user.displayname,
-                                    modified_by: user.displayname,
+                            db.transaction().then(function (t) {
+                                DBChatRoomChats.update({
+                                    chat_read: true
                                 }, {
-                                    transaction: t
-                                }).then(function () {
-
+                                    where: {
+                                        sender_id: {
+                                            [Op.ne]: user.id
+                                        },
+                                        room_id: {
+                                            [Op.eq]: roomId
+                                        }
+                                    }
+                                }).then(function (res3) {
                                     t.commit();
-                                    callback({ error: null, callbackRoom: roomObj, callbackChats: null });
-
+                                    callback({ error: null, callbackRoom: { id: res[0].room_id }, callbackChats: res2 });
                                 }).catch(function (err3) {
-
                                     t.rollback();
                                     callback({ error: err3, callbackRoom: null, callbackChats: null });
-
                                 });
-                            });
-
+                            })
                         }).catch(function (err2) {
-                            t.rollback();
                             callback({ error: err2, callbackRoom: null, callbackChats: null });
-                        });
-                    });
-                }
-
+                        })
+                    }
+                }).catch(function (error) {
+                    console.log(error)
+                    callback(error);
+                });
             }
+        }
 
-        }).catch(function (err) {
-            callback({ error: err, callbackRoom: null, callbackChats: null });
-        })
     });
 
-    socket.on('send message', ({ type, sender, receiver, message, messages, room }) => {
-
+    socket.on('send message', ({ sender, receiver, message, messages, room }, callback) => {
         db.transaction().then(function (t) {
             DBChatRoomChats.create({
                 room_id: room.id,
@@ -125,37 +157,27 @@ io.on('connection', socket => {
                 pic_url: null, // next feature
                 chat_read: false,
                 is_active: true,
-                created_by: sender.displayname,
-                modified_by: sender.displayname,
-            }, {
-                transaction: t
-
+                created_by: sender.username,
+                modified_by: sender.username,
             }).then(function (res) {
-
-                io.emit("set message" + receiver.user_id, { message: res, messages: messages, type, serverSender: sender, serverReceiver: receiver, roomId: room.id })
-                io.emit("set message" + sender.id, { message: res, messages: messages, type, serverSender: sender, serverReceiver: receiver, roomId: room.id })
-                t.commit();
-
+                io.emit("set message" + receiver.user_id, { message: res, messages: messages, serverSender: sender, serverReceiver: receiver, roomId: room.id })
+                io.emit("set message" + sender.id, { message: res, messages: messages, serverSender: sender, serverReceiver: receiver, roomId: room.id })
                 io.emit('trigger' + sender.id)
                 io.emit('trigger' + receiver.user_id)
-
+                t.commit();
+                callback(null);
             }).catch(function (error) {
-
-                console.log(error)
-
-                // io.to(room).emit('get error', { message: error.message, type, senderId })
                 t.rollback();
-
+                callback(error);
             });
         });
     })
 
-    socket.on('read messages', ({ reader, roomId }) => {
-        DBChatRoomChats.update(
-            {
+    socket.on('read messages', ({ reader, roomId }, callback) => {
+        db.transaction().then(function (t) {
+            DBChatRoomChats.update({
                 chat_read: true
-            },
-            {
+            }, {
                 where: {
                     sender_id: {
                         [Op.ne]: reader.id
@@ -164,8 +186,14 @@ io.on('connection', socket => {
                         [Op.eq]: roomId
                     }
                 }
-            }
-        )
+            }).then(function (res) {
+                t.commit();
+                callback(null);
+            }).catch(function (error) {
+                t.rollback();
+                callback(error);
+            });
+        });
     })
 
     socket.on('disconnect', function (reason) {
